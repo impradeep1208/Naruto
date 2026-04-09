@@ -69,8 +69,8 @@ nano .env
 Create a `.env` file in the project root and configure your Ollama server:
 
 ```env
-# Ollama server URL (your machine IP)
-OLLAMA_URL=http://192.168.56.1:11434
+# Ollama server URL (replace with your machine IP)
+OLLAMA_URL=http://YOUR_MACHINE_IP:11434
 OLLAMA_API_KEY=
 
 # Flask settings
@@ -278,12 +278,13 @@ Parse natural language voice/text command.
 
 ### Ollama Connection Error
 ```
-Error: Connection refused (http://192.168.56.1:11434)
+Error: Connection refused (http://YOUR_MACHINE_IP:11434)
 ```
 **Solution:**
 1. Ensure Ollama is running on the specified IP
 2. Check firewall allows traffic on port 11434
-3. Verify IP in `.env` file matches your machine
+3. Verify IP in `.env` file matches your actual machine IP
+4. Check `.env` file location and permissions
 
 ### Nmap Not Found
 ```
