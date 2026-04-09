@@ -1,0 +1,913 @@
+document.addEventListener('DOMContentLoaded', function() {
+    console.log("=== NARUTO SCRIPT LOADED ===");
+    
+    let currentReportFilename = null;
+    let currentAIAnalysis = null;
+
+    // DOM Elements
+    const scanButton = document.getElementById("scan-button");
+    const voiceButton = document.getElementById("voice-button");
+    const clearButton = document.getElementById("clear-output-button");
+    const downloadButton = document.getElementById("download-report-button");
+    const terminalOutput = document.getElementById("terminal-output");
+    const targetInput = document.getElementById("target");
+    const toolSelect = document.getElementById("tool");
+    const scanTypeSelect = document.getElementById("scan-type");
+    const scanTypeSection = document.getElementById("scan-type-section");
+    const voiceInputSection = document.getElementById("voice-input-section");
+    const voiceInput = document.getElementById("voice-input");
+    const sendVoiceBtn = document.getElementById("send-voice-btn");
+
+    console.log("✓ DOM Elements loaded");
+
+    // Voice Recognition Setup
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition || window.mozSpeechRecognition || window.msSpeechRecognition;
+    let recognition = null;
+    
+    if (SpeechRecognition) {
+        try {
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = true;
+            recognition.lang = "en-US";
+            recognition.maxAlternatives = 1;
+            console.log("✅ SpeechRecognition API initialized");
+            appendOutput("✅ Voice recognition ready (allow microphone when prompted)\n");
+        } catch (e) {
+            console.error("❌ SpeechRecognition initialization failed:", e);
+            recognition = null;
+        }
+    } else {
+        console.warn("❌ SpeechRecognition API not available");
+        appendOutput("ℹ️ Voice recognition not available - using text input instead\n");
+    }
+    
+    // Update button based on API availability
+    if (!recognition) {
+        voiceButton.textContent = "⌨️ Text Command";
+        voiceButton.title = "Voice not available - click for text input";
+    } else {
+        voiceButton.title = "Click to speak your command";
+    }
+
+    // Event Listeners
+    scanButton.addEventListener("click", executeScan);
+    voiceButton.addEventListener("click", startVoiceCommand);
+    clearButton.addEventListener("click", clearOutput);
+    downloadButton.addEventListener("click", downloadReport);
+    
+    // Text command input handlers
+    if (sendVoiceBtn) {
+        sendVoiceBtn.addEventListener("click", handleTextCommand);
+    }
+    if (voiceInput) {
+        voiceInput.addEventListener("keypress", (e) => {
+            if (e.key === "Enter") {
+                handleTextCommand();
+            }
+        });
+    }
+    
+    // Show/hide scan type based on tool selection
+    toolSelect.addEventListener("change", function() {
+        const isScanTypeVisible = this.value === "nmap";
+        scanTypeSection.style.display = isScanTypeVisible ? "block" : "none";
+        if (!isScanTypeVisible) {
+            scanTypeSelect.value = "basic";
+        }
+        console.log(`Tool changed to: ${this.value}, scan-type visible: ${isScanTypeVisible}`);
+    });
+    
+    // Trigger initial visibility check
+    toolSelect.dispatchEvent(new Event("change"));
+
+    // Voice Recognition Callbacks
+    if (recognition) {
+        recognition.onstart = () => {
+            console.log("Voice recognition started");
+            appendOutput("🔴 LISTENING... Speak now!\n");
+            voiceButton.disabled = true;
+        };
+
+        recognition.onresult = (event) => {
+            let transcript = "";
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                transcript += event.results[i][0].transcript;
+            }
+            console.log("Voice recognized:", transcript);
+            appendOutput(`📝 Recognized: "${transcript}"\n`);
+            parseVoiceCommand(transcript);
+        };
+
+        recognition.onerror = (event) => {
+            console.error("Voice recognition error:", event.error);
+            let errorMsg = event.error;
+            let useTextFallback = true;
+            
+            if (event.error === "not-allowed") {
+                errorMsg = "⚠️ Microphone permission denied";
+            } else if (event.error === "network") {
+                errorMsg = "⚠️ Network error - check internet";
+                useTextFallback = false;
+            } else if (event.error === "no-speech") {
+                errorMsg = "⚠️ No speech detected - Switching to text input...";
+            } else if (event.error === "audio-capture") {
+                errorMsg = "⚠️ Microphone not detected";
+            }
+            
+            appendOutput(`${errorMsg}\n`);
+            voiceButton.disabled = false;
+            
+            // Auto-switch to text input on microphone-related errors
+            if (useTextFallback && event.error !== "network") {
+                setTimeout(() => {
+                    appendOutput("📝 Ready for text input...\n");
+                    voiceInputSection.style.display = "block";
+                    voiceInput.focus();
+                    voiceInput.placeholder = "Type command (e.g., 'scan 192.168.1.1 with nmap basic')";
+                }, 300);
+            }
+        };
+
+        recognition.onend = () => {
+            console.log("Voice recognition ended");
+            voiceButton.disabled = false;
+        };
+    }
+
+    // Voice Command Handler
+    function startVoiceCommand() {
+        if (recognition) {
+            // Voice API available - use speech recognition
+            clearOutput();
+            appendOutput("🎤 Initializing voice recognition...\n");
+            appendOutput("📢 Speak CLEARLY and LOUDLY\n");
+            appendOutput("   e.g., 'scan 192.168.1.1 with nmap basic'\n");
+            appendOutput("   or 'whois example.com'\n");
+            appendOutput("   or 'gobuster 192.168.1.1'\n\n");
+            
+            // Give microphone time to activate
+            setTimeout(() => {
+                try {
+                    recognition.start();
+                    appendOutput("🔴 Listening...\n");
+                } catch (e) {
+                    console.error("Error starting recognition:", e);
+                    appendOutput(`❌ Error: ${e.message}\n`);
+                    voiceButton.disabled = false;
+                }
+            }, 500);
+        } else {
+            // No voice API - show text input immediately
+            clearOutput();
+            appendOutput("📝 Enter your command in text:\n");
+            voiceInputSection.style.display = "block";
+            voiceInput.focus();
+            voiceInput.placeholder = "e.g., scan 192.168.1.1 with nmap basic";
+        }
+    }
+    
+    // Text Command Handler
+    function handleTextCommand() {
+        const command = voiceInput.value.trim();
+        if (!command) {
+            appendOutput("❌ Please enter a command\n");
+            return;
+        }
+        console.log("Text command entered:", command);
+        parseVoiceCommand(command);
+        voiceInputSection.style.display = "none";
+        voiceInput.value = "";
+    }
+
+    // Parse Voice/Text Command
+    function parseVoiceCommand(commandText) {
+        appendOutput("⚙️ Parsing command...\n");
+        console.log("Parsing command:", commandText);
+        
+        fetch("/api/parse-command", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ command: commandText })
+        })
+        .then(res => res.json())
+        .then(data => {
+            console.log("Parse result:", data);
+            
+            if (data.status === "success") {
+                const parsed = data.parsed;
+                appendOutput(`✓ Target: ${parsed.target}\n`);
+                appendOutput(`✓ Tool: ${parsed.tool}\n`);
+                appendOutput(`✓ Scan Type: ${parsed.scan_type}\n\n`);
+                
+                // Update form fields
+                targetInput.value = parsed.target;
+                toolSelect.value = parsed.tool;
+                scanTypeSelect.value = parsed.scan_type;
+                
+                // Trigger tool change to show/hide scan type
+                toolSelect.dispatchEvent(new Event("change"));
+                
+                appendOutput("🚀 Auto-executing scan...\n\n");
+                executeScan();
+            } else {
+                appendOutput(`❌ Parse Error: ${data.message}\n`);
+                appendOutput("Try format: 'scan 192.168.1.1 with nmap basic'\n");
+            }
+        })
+        .catch(err => {
+            console.error("Parsing failed:", err);
+            appendOutput(`❌ Parsing failed: ${err.message}\n`);
+        });
+    }
+
+    // Execute Scan
+    function executeScan() {
+        const target = targetInput.value.trim();
+        const tool = toolSelect.value;
+        const scanType = scanTypeSelect.value;
+
+        console.log("Executing scan:", { target, tool, scanType });
+
+        if (!target) {
+            appendOutput("❌ Target required - Enter IP or domain\n");
+            return;
+        }
+
+        clearOutput();
+        appendOutput(`🔍 Initiating ${tool.toUpperCase()} scan...\n`);
+        appendOutput(`   Target: ${target}\n`);
+        appendOutput(`   Tool: ${tool}\n`);
+        appendOutput(`   Scan Type: ${scanType}\n\n`);
+        appendOutput("📡 Connecting to server...\n");
+
+        scanButton.disabled = true;
+        voiceButton.disabled = true;
+        scanButton.textContent = "Scanning...";
+
+        fetch("/api/scan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ target, tool, scan_type: scanType })
+        })
+        .then(res => res.json())
+        .then(data => {
+            console.log("Scan response:", data);
+            scanButton.disabled = false;
+            voiceButton.disabled = false;
+            scanButton.textContent = "🔍 Execute Scan";
+
+            if (data.status === "success") {
+                appendOutput("✓ Scan completed successfully\n\n");
+                
+                // Show tool output
+                appendOutput("===== TOOL OUTPUT =====\n");
+                appendOutput(data.execution.stdout || "No output");
+                appendOutput("\n");
+
+                if (data.execution.stderr) {
+                    appendOutput("===== WARNINGS/ERRORS =====\n");
+                    appendOutput(data.execution.stderr);
+                    appendOutput("\n");
+                }
+
+                // Show AI Analysis
+                if (data.analysis && data.analysis.status === "success" && data.analysis.analysis) {
+                    currentAIAnalysis = data.analysis.analysis;
+                    appendOutput("\n===== AI ANALYSIS =====\n");
+                    appendOutput(data.analysis.analysis + "\n");
+                    appendOutput("\n✓ AI Analysis available in download\n");
+                } else {
+                    appendOutput("\n⚠️ AI Analysis not available\n");
+                }
+
+                // Store report info
+                currentReportFilename = data.report_filename;
+                downloadButton.disabled = false;
+                appendOutput("\n✓ Report generated: " + data.report_filename + "\n");
+            } else {
+                appendOutput(`❌ Scan failed: ${data.message}\n`);
+            }
+        })
+        .catch(err => {
+            console.error("Scan execution error:", err);
+            scanButton.disabled = false;
+            voiceButton.disabled = false;
+            scanButton.textContent = "🔍 Execute Scan";
+            appendOutput(`❌ Execution error: ${err.message}\n`);
+        });
+    }
+
+    // Clear Output
+    function clearOutput() {
+        terminalOutput.textContent = "";
+        currentReportFilename = null;
+        currentAIAnalysis = null;
+        downloadButton.disabled = true;
+    }
+
+    // Download Report
+    function downloadReport() {
+        if (!currentReportFilename) {
+            appendOutput("❌ No report available\n");
+            return;
+        }
+        const link = document.createElement("a");
+        link.href = `/api/download-report/${currentReportFilename}`;
+        link.download = currentReportFilename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        appendOutput(`✓ Report downloaded: ${currentReportFilename}\n`);
+    }
+
+    // Append to terminal
+    function appendOutput(text) {
+        terminalOutput.textContent += text;
+        terminalOutput.scrollTop = terminalOutput.scrollHeight;
+    }
+
+    // Initialize
+    console.log("=== NARUTO INITIALIZATION COMPLETE ===");
+    clearOutput();
+    appendOutput("⚡ NARUTO RECON ASSISTANT\n");
+    appendOutput("🔐 Authorized Testing Only\n\n");
+    appendOutput("COMMANDS:\n");
+    appendOutput("  • Via Nmap: 'scan 192.168.1.1 with nmap basic'\n");
+    appendOutput("  • Via Whois: 'whois example.com'\n");
+    appendOutput("  • Via Gobuster: 'gobuster 192.168.1.1'\n");
+    appendOutput("  • Scan types: basic, service_detection, aggressive, all_ports\n\n");
+});
+document.addEventListener('DOMContentLoaded', function() {
+    console.log("=== NARUTO SCRIPT LOADED - v4 ===");
+    
+    let currentReportFilename = null;
+    let currentAIAnalysis = null;
+
+    // DOM Elements
+    const scanButton = document.getElementById("scan-button");
+    const voiceButton = document.getElementById("voice-button");
+    const clearButton = document.getElementById("clear-output-button");
+    const downloadButton = document.getElementById("download-report-button");
+    const terminalOutput = document.getElementById("terminal-output");
+    const aiText = document.getElementById("ai-text");
+    const aiBox = document.getElementById("ai-box");
+    const listeningIndicator = document.getElementById("listening-indicator");
+    const targetInput = document.getElementById("target");
+    const toolSelect = document.getElementById("tool");
+    const scanTypeSelect = document.getElementById("scan-type");
+
+    console.log("=== NARUTO INITIALIZATION ===");
+    console.log("DOM Elements Check:");
+    console.log("✓ scanButton:", scanButton ? "FOUND" : "MISSING");
+    console.log("✓ voiceButton:", voiceButton ? "FOUND" : "MISSING");
+    console.log("✓ clearButton:", clearButton ? "FOUND" : "MISSING");
+    console.log("✓ downloadButton:", downloadButton ? "FOUND" : "MISSING");
+    console.log("✓ terminalOutput:", terminalOutput ? "FOUND" : "MISSING");
+    console.log("✓ aiText:", aiText ? "FOUND" : "MISSING");
+    console.log("✓ aiBox:", aiBox ? "FOUND" : "MISSING");
+
+    // Voice Recognition Setup
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition || window.mozSpeechRecognition || window.msSpeechRecognition;
+    let recognition = null;
+    let voiceRetries = 0;
+    const voiceInputSection = document.getElementById("voice-input-section");
+    const voiceInput = document.getElementById("voice-input");
+    const sendVoiceBtn = document.getElementById("send-voice-btn");
+    
+    console.log("🎙️ Checking SpeechRecognition API...");
+    console.log("window.SpeechRecognition:", !!window.SpeechRecognition);
+    console.log("window.webkitSpeechRecognition:", !!window.webkitSpeechRecognition);
+    console.log("SpeechRecognition Constructor:", !!SpeechRecognition);
+    
+    if (SpeechRecognition) {
+        try {
+            recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = true;
+            recognition.lang = "en-US";
+            recognition.maxAlternatives = 1;
+            console.log("✅ SpeechRecognition API initialized successfully");
+            appendOutput("✅ Voice recognition ready (allow microphone when prompted)\n");
+        } catch (e) {
+            console.error("❌ Failed to initialize SpeechRecognition:", e);
+            recognition = null;
+        }
+    } else {
+        console.warn("❌ SpeechRecognition API not available - using text fallback");
+        appendOutput("ℹ️ Voice recognition not available - using text input instead\n");
+    }
+    
+    // Update button based on API availability
+    if (recognition) {
+        voiceButton.title = "Click to speak your command";
+    } else {
+        voiceButton.textContent = "⌨️ Text Command";
+        voiceButton.title = "SpeechRecognition not available - use text input instead";
+    }
+
+    // Event Listeners - with defensive checks
+    try {
+        if (scanButton) scanButton.addEventListener("click", executeScan);
+        else console.warn("⚠️ scanButton NOT found");
+        
+        if (voiceButton) voiceButton.addEventListener("click", startVoiceCommand);
+        else console.warn("⚠️ voiceButton NOT found");
+        
+        if (clearButton) clearButton.addEventListener("click", clearOutput);
+        else console.warn("⚠️ clearButton NOT found");
+        
+        if (sendVoiceBtn) sendVoiceBtn.addEventListener("click", handleTextCommand);
+        if (voiceInput) {
+            voiceInput.addEventListener("keypress", (e) => {
+                if (e.key === "Enter") handleTextCommand();
+            });
+        }
+        
+        if (downloadButton) downloadButton.addEventListener("click", downloadReport);
+        else console.warn("⚠️ downloadButton NOT found");
+    } catch (e) {
+        console.error("❌ Error attaching event listeners:", e.message);
+    }
+
+    if (recognition) {
+        recognition.onstart = () => {
+            listeningIndicator.classList.add("active");
+            appendOutput("🔴 LISTENING... Speak now!\n");
+            voiceButton.disabled = true;
+        };
+
+        recognition.onresult = (event) => {
+            let transcript = "";
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                transcript += event.results[i][0].transcript;
+            }
+            appendOutput(`📝 Recognized: "${transcript}"\n`);
+            parseVoiceCommand(transcript);
+        };
+
+        recognition.onerror = (event) => {
+            let errorMsg = event.error;
+            let useTextFallback = true;
+            
+            if (event.error === "not-allowed") {
+                errorMsg = "⚠️ Microphone permission denied";
+                useTextFallback = true;
+            } else if (event.error === "network") {
+                errorMsg = "⚠️ Network error - check internet";
+                useTextFallback = false;
+            } else if (event.error === "no-speech") {
+                errorMsg = "⚠️ No speech detected - Switching to text input...";
+                useTextFallback = true;
+            } else if (event.error === "audio-capture") {
+                errorMsg = "⚠️ Microphone not detected";
+                useTextFallback = true;
+            }
+            
+            appendOutput(`${errorMsg}\n`);
+            voiceButton.disabled = false;
+            voiceRetries = 0;
+            
+            // Auto-switch to text input on microphone-related errors
+            if (useTextFallback && event.error !== "network") {
+                setTimeout(() => {
+                    appendOutput("📝 Ready for text input...\n");
+                    voiceInputSection.style.display = "block";
+                    voiceInput.focus();
+                }, 300);
+            }
+        };
+
+        recognition.onend = () => {
+            listeningIndicator.classList.remove("active");
+            voiceButton.disabled = false;
+        };
+    }
+
+    function startVoiceCommand() {
+        if (recognition) {
+            // Voice API available - use speech recognition
+            clearOutput();
+            appendOutput("🎤 Initializing voice recognition...\n");
+            appendOutput("📢 Speak CLEARLY and LOUDLY\n");
+            appendOutput("   e.g., 'scan 192.168.1.1 with nmap basic'\n\n");
+            
+            // Give microphone time to activate
+            setTimeout(() => {
+                try {
+                    recognition.start();
+                    appendOutput("🔴 Listening... (speak now)\n");
+                } catch (e) {
+                    console.error("Error starting recognition:", e);
+                    appendOutput(`❌ Error: ${e.message}\n`);
+                }
+            }, 500);
+        } else {
+            // Fallback - show text input
+            voiceInputSection.style.display = "block";
+            voiceInput.focus();
+        }
+    }
+    
+    function handleTextCommand() {
+        const command = voiceInput.value.trim();
+        if (!command) {
+            appendOutput("❌ Please enter a command\n");
+            return;
+        }
+        parseVoiceCommand(command);
+        voiceInputSection.style.display = "none";
+        voiceInput.value = "";
+    }
+
+    function parseVoiceCommand(commandText) {
+        appendOutput("⚙️ Parsing command...\n");
+        fetch("/api/parse-command", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ command: commandText })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === "success") {
+                const parsed = data.parsed;
+                appendOutput(`✓ Target: ${parsed.target}\n`);
+                appendOutput(`✓ Tool: ${parsed.tool}\n`);
+                appendOutput(`✓ Scan Type: ${parsed.scan_type}\n`);
+                targetInput.value = parsed.target;
+                toolSelect.value = parsed.tool;
+                scanTypeSelect.value = parsed.scan_type;
+                appendOutput("\n🚀 Auto-executing scan...\n");
+                executeScan();
+            } else {
+                appendOutput(`❌ Error: ${data.message}\n`);
+            }
+        })
+        .catch(err => appendOutput(`❌ Parsing failed: ${err}\n`));
+    }
+
+    function executeScan() {
+        const target = targetInput.value.trim();
+        const tool = toolSelect.value;
+        const scanType = scanTypeSelect.value;
+
+        if (!target) {
+            appendOutput("❌ Error: Target required\n");
+            return;
+        }
+
+        clearOutput();
+        appendOutput(`🔍 Initiating ${tool.toUpperCase()} scan...\n`);
+        appendOutput(`Target: ${target}\n`);
+        appendOutput(`Scan Type: ${scanType}\n`);
+        appendOutput(`Tool: ${tool}\n\n`);
+        appendOutput("📡 Connecting to server...\n");
+
+        scanButton.disabled = true;
+        voiceButton.disabled = true;
+        scanButton.textContent = "Scanning...";
+
+        fetch("/api/scan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ target, tool, scan_type: scanType })
+        })
+        .then(res => res.json())
+        .then(data => {
+            console.log("📊 Full API Response:", data);
+            scanButton.disabled = false;
+            voiceButton.disabled = false;
+            scanButton.textContent = "Execute Scan";
+
+            if (data.status === "success") {
+                appendOutput("✓ Scan completed successfully\n\n");
+                appendOutput("===== TOOL OUTPUT =====\n");
+                appendOutput(data.execution.stdout || "No output");
+                appendOutput("\n");
+
+                if (data.execution.stderr) {
+                    appendOutput("===== WARNINGS/ERRORS =====\n");
+                    appendOutput(data.execution.stderr);
+                    appendOutput("\n");
+                }
+
+                // Check AI Analysis
+                console.log("🤖 AI Analysis Response:", data.analysis);
+                if (data.analysis) {
+                    if (data.analysis.status === "success" && data.analysis.analysis) {
+                        currentAIAnalysis = data.analysis.analysis;
+                        appendOutput("\n===== AI ANALYSIS =====\n");
+                        appendOutput(data.analysis.analysis + "\n");
+                        appendOutput("\n✓ AI Analysis in terminal and available in download\n");
+                        console.log("✅ AI Analysis set successfully");
+                    } else {
+                        appendOutput("\n⚠️ AI Analysis unavailable: " + (data.analysis.analysis || data.analysis.status) + "\n");
+                        console.warn("⚠️ AI Analysis error or empty:", data.analysis);
+                    }
+                } else {
+                    appendOutput("\n⚠️ No AI Analysis in response\n");
+                    console.warn("⚠️ No analysis object in response");
+                }
+
+                currentReportFilename = data.report_filename;
+                downloadButton.disabled = false;
+                appendOutput("\n✓ Report generated: " + data.report_filename + "\n");
+            } else {
+                appendOutput(`❌ Scan failed: ${data.message}\n`);
+            }
+        })
+        .catch(err => {
+            scanButton.disabled = false;
+            voiceButton.disabled = false;
+            scanButton.textContent = "Execute Scan";
+            appendOutput(`❌ Error: ${err.message}\n`);
+        });
+    }
+
+    function clearOutput() {
+        terminalOutput.textContent = "";
+        if (aiBox) aiBox.style.display = "none";
+        if (aiText) aiText.textContent = "";
+        currentReportFilename = null;
+        currentAIAnalysis = null;
+        downloadButton.disabled = true;
+    }
+
+
+
+    function downloadReport() {
+        if (!currentReportFilename) {
+            appendOutput("❌ No report available\n");
+            return;
+        }
+        const link = document.createElement("a");
+        link.href = `/api/download-report/${currentReportFilename}`;
+        link.download = currentReportFilename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        appendOutput(`✓ Report downloaded: ${currentReportFilename}\n`);
+    }
+
+    function appendOutput(text) {
+        terminalOutput.textContent += text;
+        terminalOutput.scrollTop = terminalOutput.scrollHeight;
+    }
+
+    // Initialize
+    appendOutput("NARUTO RECON ASSISTANT\n");
+    appendOutput("Authorized Testing Only\n");
+    appendOutput("Enter a target and select reconnaissance tool to begin.\n\n");
+});
+document.addEventListener('DOMContentLoaded', function() {
+    let currentReportFilename = null;
+    let currentAIAnalysis = null;
+
+    // DOM Elements
+    const scanButton = document.getElementById("scan-button");
+    const voiceButton = document.getElementById("voice-button");
+    const clearButton = document.getElementById("clear-output-button");
+    const downloadButton = document.getElementById("download-report-button");
+    const terminalOutput = document.getElementById("terminal-output");
+    const aiText = document.getElementById("ai-text");
+    const aiBox = document.getElementById("ai-box");
+    const listeningIndicator = document.getElementById("listening-indicator");
+    const targetInput = document.getElementById("target");
+    const toolSelect = document.getElementById("tool");
+    const scanTypeSelect = document.getElementById("scan-type");
+
+    // Voice Recognition Setup
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+    
+    if (SpeechRecognition) {
+        recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = "en-US";
+    } else {
+        console.warn("SpeechRecognition API not available");
+        voiceButton.disabled = true;
+        voiceButton.title = "Speech Recognition not supported in your browser";
+    }
+
+    // Event Listeners
+    scanButton.addEventListener("click", executeScan);
+    voiceButton.addEventListener("click", startVoiceCommand);
+    clearButton.addEventListener("click", clearOutput);
+    downloadButton.addEventListener("click", downloadReport);
+    
+    // Show/hide scan type based on selected tool
+    toolSelect.addEventListener("change", function() {
+        const scanTypeSection = document.getElementById("scan-type-section");
+        if (this.value === "nmap") {
+            scanTypeSection.style.display = "block";
+        } else {
+            scanTypeSection.style.display = "none";
+            scanTypeSelect.value = "basic"; // Reset to default
+        }
+    });
+    
+    // Initialize scan type visibility on page load
+    toolSelect.dispatchEvent(new Event("change"));
+
+    if (recognition) {
+        recognition.onstart = () => {
+            listeningIndicator.classList.add("active");
+            appendOutput("🎤 Listening for voice command...\n");
+            voiceButton.disabled = true;
+        };
+
+        recognition.onresult = (event) => {
+            let transcript = "";
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                transcript += event.results[i][0].transcript;
+            }
+
+            appendOutput(`📝 Recognized: "${transcript}"\n`);
+            parseVoiceCommand(transcript);
+        };
+
+        recognition.onerror = (event) => {
+            appendOutput(`❌ Voice recognition error: ${event.error}\n`);
+            voiceButton.disabled = false;
+        };
+
+        recognition.onend = () => {
+            listeningIndicator.classList.remove("active");
+            voiceButton.disabled = false;
+        };
+    }
+
+    function startVoiceCommand() {
+        if (!recognition) {
+            appendOutput("❌ Voice recognition not available in this browser\n");
+            return;
+        }
+        clearOutput();
+        recognition.start();
+    }
+
+    function parseVoiceCommand(commandText) {
+        appendOutput("⚙️ Parsing command...\n");
+
+        fetch("/api/parse-command", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ command: commandText })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === "success") {
+                const parsed = data.parsed;
+                appendOutput(`✓ Target: ${parsed.target}\n`);
+                appendOutput(`✓ Tool: ${parsed.tool}\n`);
+                appendOutput(`✓ Scan Type: ${parsed.scan_type}\n`);
+
+                targetInput.value = parsed.target;
+                toolSelect.value = parsed.tool;
+                scanTypeSelect.value = parsed.scan_type;
+
+                appendOutput("\n🚀 Auto-executing scan...\n");
+                executeScan();
+            } else {
+                appendOutput(`❌ Error: ${data.message}\n`);
+            }
+        })
+        .catch(err => appendOutput(`❌ Parsing failed: ${err}\n`));
+    }
+
+    function executeScan() {
+        const target = targetInput.value.trim();
+        const tool = toolSelect.value;
+        const scanType = scanTypeSelect.value;
+
+        console.log("Execute Scan clicked:", { target, tool, scanType });
+
+        if (!target) {
+            appendOutput("❌ Error: Target required\n");
+            console.error("No target provided");
+            return;
+        }
+
+        clearOutput();
+        appendOutput(`🔍 Initiating ${tool.toUpperCase()} scan...\n`);
+        appendOutput(`Target: ${target}\n`);
+        appendOutput(`Scan Type: ${scanType}\n`);
+        appendOutput(`Tool: ${tool}\n\n`);
+        appendOutput("📡 Connecting to server...\n");
+
+        scanButton.disabled = true;
+        voiceButton.disabled = true;
+        scanButton.textContent = "Scanning...";
+
+        fetch("/api/scan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                target: target,
+                tool: tool,
+                scan_type: scanType
+            })
+        })
+        .then(res => {
+            console.log("Response status:", res.status);
+            return res.json();
+        })
+        .then(data => {
+            console.log("Response data:", data);
+            scanButton.disabled = false;
+            voiceButton.disabled = false;
+            scanButton.textContent = "Execute Scan";
+
+            if (data.status === "success") {
+                appendOutput("✓ Scan completed successfully\n\n");
+                appendOutput("===== TOOL OUTPUT =====\n");
+                appendOutput(data.execution.stdout || "No output");
+                appendOutput("\n");
+
+                if (data.execution.stderr) {
+                    appendOutput("===== WARNINGS/ERRORS =====\n");
+                    appendOutput(data.execution.stderr);
+                    appendOutput("\n");
+                }
+
+                // Store AI analysis separately
+                if (data.analysis && data.analysis.status === "success") {
+                    currentAIAnalysis = data.analysis.analysis;
+                    appendOutput("\n✓ AI Analysis available - Click 🤖 button to view\n");
+                } else if (data.analysis && data.analysis.status !== "success") {
+                    appendOutput("\n⚠️ AI Analysis unavailable\n");
+                }
+
+                currentReportFilename = data.report_filename;
+                downloadButton.disabled = false;
+                appendOutput("\n✓ Report generated: " + data.report_filename + "\n");
+                appendOutput("Click 'Download Report' to save.\n");
+            } else {
+                appendOutput(`❌ Scan failed: ${data.message}\n`);
+            }
+        })
+        .catch(err => {
+            console.error("Fetch error:", err);
+            scanButton.disabled = false;
+            voiceButton.disabled = false;
+            scanButton.textContent = "Execute Scan";
+            appendOutput(`❌ Execution error: ${err.message}\n`);
+        });
+    }
+
+    function clearOutput() {
+        terminalOutput.textContent = "";
+        if (aiBox) {
+            aiBox.style.display = "none";
+            aiText.textContent = "";
+        }
+        currentReportFilename = null;
+        currentAIAnalysis = null;
+        downloadButton.disabled = true;
+    }
+
+
+    function downloadReport() {
+        if (!currentReportFilename) {
+            appendOutput("❌ No report available\n");
+            return;
+        }
+
+        const link = document.createElement("a");
+        link.href = `/api/download-report/${currentReportFilename}`;
+        link.download = currentReportFilename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        appendOutput(`✓ Report downloaded: ${currentReportFilename}\n`);
+    }
+
+    function appendOutput(text) {
+        terminalOutput.textContent += text;
+        terminalOutput.scrollTop = terminalOutput.scrollHeight;
+    }
+
+    // Initialize
+    console.log("Initializing NARUTO...");
+    console.log("DOM Elements loaded:", {
+        scanButton: !!scanButton,
+        voiceButton: !!voiceButton,
+        clearButton: !!clearButton,
+        
+        downloadButton: !!downloadButton,
+        terminalOutput: !!terminalOutput,
+        aiText: !!aiText,
+        aiBox: !!aiBox,
+        targetInput: !!targetInput,
+        toolSelect: !!toolSelect,
+        scanTypeSelect: !!scanTypeSelect
+    });
+    
+    appendOutput("NARUTO RECON ASSISTANT\n");
+    appendOutput("Authorized Testing Only\n");
+    appendOutput("Enter a target and select reconnaissance tool to begin.\n\n");
+    console.log("NARUTO initialized successfully");
+});

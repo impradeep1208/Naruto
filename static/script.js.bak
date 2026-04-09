@@ -1,0 +1,515 @@
+document.addEventListener('DOMContentLoaded', function() {
+    console.log("=== NARUTO SCRIPT LOADED - v4 ===");
+    
+    let currentReportFilename = null;
+    let currentAIAnalysis = null;
+
+    // DOM Elements
+    const scanButton = document.getElementById("scan-button");
+    const voiceButton = document.getElementById("voice-button");
+    const clearButton = document.getElementById("clear-output-button");
+    const aiBtn = document.getElementById("ai-btn");
+    const downloadButton = document.getElementById("download-report-button");
+    const terminalOutput = document.getElementById("terminal-output");
+    const aiText = document.getElementById("ai-text");
+    const aiBox = document.getElementById("ai-box");
+    const listeningIndicator = document.getElementById("listening-indicator");
+    const targetInput = document.getElementById("target");
+    const toolSelect = document.getElementById("tool");
+    const scanTypeSelect = document.getElementById("scan-type");
+
+    console.log("=== NARUTO INITIALIZATION ===");
+    console.log("DOM Elements Check:");
+    console.log("✓ scanButton:", scanButton ? "FOUND" : "MISSING");
+    console.log("✓ voiceButton:", voiceButton ? "FOUND" : "MISSING");
+    console.log("✓ clearButton:", clearButton ? "FOUND" : "MISSING");
+    console.log("✓ downloadButton:", downloadButton ? "FOUND" : "MISSING");
+    console.log("✓ terminalOutput:", terminalOutput ? "FOUND" : "MISSING");
+    console.log("✓ aiText:", aiText ? "FOUND" : "MISSING");
+    console.log("✓ aiBox:", aiBox ? "FOUND" : "MISSING");
+
+    // Voice Recognition Setup
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+    
+    if (SpeechRecognition) {
+        recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = "en-US";
+    } else {
+        console.warn("SpeechRecognition API not available");
+        voiceButton.disabled = true;
+    }
+
+    // Event Listeners - with defensive checks
+    try {
+        if (scanButton) scanButton.addEventListener("click", executeScan);
+        else console.warn("⚠️ scanButton NOT found");
+        
+        if (voiceButton) voiceButton.addEventListener("click", startVoiceCommand);
+        else console.warn("⚠️ voiceButton NOT found");
+        
+        if (clearButton) clearButton.addEventListener("click", clearOutput);
+        else console.warn("⚠️ clearButton NOT found");
+        
+        if (aiBtn) aiBtn.addEventListener("click", toggleAI);
+        else console.warn("⚠️ aiBtn NOT found");
+        
+        if (downloadButton) downloadButton.addEventListener("click", downloadReport);
+        else console.warn("⚠️ downloadButton NOT found");
+    } catch (e) {
+        console.error("❌ Error attaching event listeners:", e.message);
+    }
+
+    if (recognition) {
+        recognition.onstart = () => {
+            listeningIndicator.classList.add("active");
+            appendOutput("🎤 Listening for voice command...\n");
+            voiceButton.disabled = true;
+        };
+
+        recognition.onresult = (event) => {
+            let transcript = "";
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                transcript += event.results[i][0].transcript;
+            }
+            appendOutput(`📝 Recognized: "${transcript}"\n`);
+            parseVoiceCommand(transcript);
+        };
+
+        recognition.onerror = (event) => {
+            appendOutput(`❌ Voice recognition error: ${event.error}\n`);
+            voiceButton.disabled = false;
+        };
+
+        recognition.onend = () => {
+            listeningIndicator.classList.remove("active");
+            voiceButton.disabled = false;
+        };
+    }
+
+    function startVoiceCommand() {
+        if (!recognition) {
+            appendOutput("❌ Voice recognition not available\n");
+            return;
+        }
+        clearOutput();
+        recognition.start();
+    }
+
+    function parseVoiceCommand(commandText) {
+        appendOutput("⚙️ Parsing command...\n");
+        fetch("/api/parse-command", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ command: commandText })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === "success") {
+                const parsed = data.parsed;
+                appendOutput(`✓ Target: ${parsed.target}\n`);
+                appendOutput(`✓ Tool: ${parsed.tool}\n`);
+                appendOutput(`✓ Scan Type: ${parsed.scan_type}\n`);
+                targetInput.value = parsed.target;
+                toolSelect.value = parsed.tool;
+                scanTypeSelect.value = parsed.scan_type;
+                appendOutput("\n🚀 Auto-executing scan...\n");
+                executeScan();
+            } else {
+                appendOutput(`❌ Error: ${data.message}\n`);
+            }
+        })
+        .catch(err => appendOutput(`❌ Parsing failed: ${err}\n`));
+    }
+
+    function executeScan() {
+        const target = targetInput.value.trim();
+        const tool = toolSelect.value;
+        const scanType = scanTypeSelect.value;
+
+        if (!target) {
+            appendOutput("❌ Error: Target required\n");
+            return;
+        }
+
+        clearOutput();
+        appendOutput(`🔍 Initiating ${tool.toUpperCase()} scan...\n`);
+        appendOutput(`Target: ${target}\n`);
+        appendOutput(`Scan Type: ${scanType}\n`);
+        appendOutput(`Tool: ${tool}\n\n`);
+        appendOutput("📡 Connecting to server...\n");
+
+        scanButton.disabled = true;
+        voiceButton.disabled = true;
+        aiBtn.disabled = true;
+        scanButton.textContent = "Scanning...";
+
+        fetch("/api/scan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ target, tool, scan_type: scanType })
+        })
+        .then(res => res.json())
+        .then(data => {
+            console.log("📊 Full API Response:", data);
+            scanButton.disabled = false;
+            voiceButton.disabled = false;
+            scanButton.textContent = "Execute Scan";
+
+            if (data.status === "success") {
+                appendOutput("✓ Scan completed successfully\n\n");
+                appendOutput("===== TOOL OUTPUT =====\n");
+                appendOutput(data.execution.stdout || "No output");
+                appendOutput("\n");
+
+                if (data.execution.stderr) {
+                    appendOutput("===== WARNINGS/ERRORS =====\n");
+                    appendOutput(data.execution.stderr);
+                    appendOutput("\n");
+                }
+
+                // Check AI Analysis
+                console.log("🤖 AI Analysis Response:", data.analysis);
+                if (data.analysis) {
+                    if (data.analysis.status === "success" && data.analysis.analysis) {
+                        currentAIAnalysis = data.analysis.analysis;
+                        aiBtn.disabled = false;
+                        appendOutput("\n===== AI ANALYSIS =====\n");
+                        appendOutput(data.analysis.analysis + "\n");
+                        appendOutput("\n✓ AI Analysis in terminal and available in download\n");
+                        console.log("✅ AI Analysis set successfully");
+                    } else {
+                        appendOutput("\n⚠️ AI Analysis unavailable: " + (data.analysis.analysis || data.analysis.status) + "\n");
+                        console.warn("⚠️ AI Analysis error or empty:", data.analysis);
+                    }
+                } else {
+                    appendOutput("\n⚠️ No AI Analysis in response\n");
+                    console.warn("⚠️ No analysis object in response");
+                }
+
+                currentReportFilename = data.report_filename;
+                downloadButton.disabled = false;
+                appendOutput("\n✓ Report generated: " + data.report_filename + "\n");
+            } else {
+                appendOutput(`❌ Scan failed: ${data.message}\n`);
+            }
+        })
+        .catch(err => {
+            scanButton.disabled = false;
+            voiceButton.disabled = false;
+            scanButton.textContent = "Execute Scan";
+            appendOutput(`❌ Error: ${err.message}\n`);
+        });
+    }
+
+    function clearOutput() {
+        terminalOutput.textContent = "";
+        if (aiBox) aiBox.style.display = "none";
+        if (aiText) aiText.textContent = "";
+        currentReportFilename = null;
+        currentAIAnalysis = null;
+        downloadButton.disabled = true;
+        aiBtn.disabled = true;
+    }
+
+
+
+    function downloadReport() {
+        if (!currentReportFilename) {
+            appendOutput("❌ No report available\n");
+            return;
+        }
+        const link = document.createElement("a");
+        link.href = `/api/download-report/${currentReportFilename}`;
+        link.download = currentReportFilename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        appendOutput(`✓ Report downloaded: ${currentReportFilename}\n`);
+    }
+
+    function appendOutput(text) {
+        terminalOutput.textContent += text;
+        terminalOutput.scrollTop = terminalOutput.scrollHeight;
+    }
+
+    // Initialize
+    appendOutput("NARUTO RECON ASSISTANT\n");
+    appendOutput("Authorized Testing Only\n");
+    appendOutput("Enter a target and select reconnaissance tool to begin.\n\n");
+});
+document.addEventListener('DOMContentLoaded', function() {
+    let currentReportFilename = null;
+    let currentAIAnalysis = null;
+
+    // DOM Elements
+    const scanButton = document.getElementById("scan-button");
+    const voiceButton = document.getElementById("voice-button");
+    const clearButton = document.getElementById("clear-output-button");
+    const aiBtn = document.getElementById("ai-btn");
+    const downloadButton = document.getElementById("download-report-button");
+    const terminalOutput = document.getElementById("terminal-output");
+    const aiText = document.getElementById("ai-text");
+    const aiBox = document.getElementById("ai-box");
+    const listeningIndicator = document.getElementById("listening-indicator");
+    const targetInput = document.getElementById("target");
+    const toolSelect = document.getElementById("tool");
+    const scanTypeSelect = document.getElementById("scan-type");
+
+    // Voice Recognition Setup
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let recognition = null;
+    
+    if (SpeechRecognition) {
+        recognition = new SpeechRecognition();
+        recognition.continuous = false;
+        recognition.interimResults = false;
+        recognition.lang = "en-US";
+    } else {
+        console.warn("SpeechRecognition API not available");
+        voiceButton.disabled = true;
+        voiceButton.title = "Speech Recognition not supported in your browser";
+    }
+
+    // Event Listeners
+    scanButton.addEventListener("click", executeScan);
+    voiceButton.addEventListener("click", startVoiceCommand);
+    clearButton.addEventListener("click", clearOutput);
+    aiBtn.addEventListener("click", toggleAI);
+    downloadButton.addEventListener("click", downloadReport);
+    
+    // Show/hide scan type based on selected tool
+    toolSelect.addEventListener("change", function() {
+        const scanTypeSection = document.getElementById("scan-type-section");
+        if (this.value === "nmap") {
+            scanTypeSection.style.display = "block";
+        } else {
+            scanTypeSection.style.display = "none";
+            scanTypeSelect.value = "basic"; // Reset to default
+        }
+    });
+    
+    // Initialize scan type visibility on page load
+    toolSelect.dispatchEvent(new Event("change"));
+
+    if (recognition) {
+        recognition.onstart = () => {
+            listeningIndicator.classList.add("active");
+            appendOutput("🎤 Listening for voice command...\n");
+            voiceButton.disabled = true;
+        };
+
+        recognition.onresult = (event) => {
+            let transcript = "";
+            for (let i = event.resultIndex; i < event.results.length; i++) {
+                transcript += event.results[i][0].transcript;
+            }
+
+            appendOutput(`📝 Recognized: "${transcript}"\n`);
+            parseVoiceCommand(transcript);
+        };
+
+        recognition.onerror = (event) => {
+            appendOutput(`❌ Voice recognition error: ${event.error}\n`);
+            voiceButton.disabled = false;
+        };
+
+        recognition.onend = () => {
+            listeningIndicator.classList.remove("active");
+            voiceButton.disabled = false;
+        };
+    }
+
+    function startVoiceCommand() {
+        if (!recognition) {
+            appendOutput("❌ Voice recognition not available in this browser\n");
+            return;
+        }
+        clearOutput();
+        recognition.start();
+    }
+
+    function parseVoiceCommand(commandText) {
+        appendOutput("⚙️ Parsing command...\n");
+
+        fetch("/api/parse-command", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ command: commandText })
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === "success") {
+                const parsed = data.parsed;
+                appendOutput(`✓ Target: ${parsed.target}\n`);
+                appendOutput(`✓ Tool: ${parsed.tool}\n`);
+                appendOutput(`✓ Scan Type: ${parsed.scan_type}\n`);
+
+                targetInput.value = parsed.target;
+                toolSelect.value = parsed.tool;
+                scanTypeSelect.value = parsed.scan_type;
+
+                appendOutput("\n🚀 Auto-executing scan...\n");
+                executeScan();
+            } else {
+                appendOutput(`❌ Error: ${data.message}\n`);
+            }
+        })
+        .catch(err => appendOutput(`❌ Parsing failed: ${err}\n`));
+    }
+
+    function executeScan() {
+        const target = targetInput.value.trim();
+        const tool = toolSelect.value;
+        const scanType = scanTypeSelect.value;
+
+        console.log("Execute Scan clicked:", { target, tool, scanType });
+
+        if (!target) {
+            appendOutput("❌ Error: Target required\n");
+            console.error("No target provided");
+            return;
+        }
+
+        clearOutput();
+        appendOutput(`🔍 Initiating ${tool.toUpperCase()} scan...\n`);
+        appendOutput(`Target: ${target}\n`);
+        appendOutput(`Scan Type: ${scanType}\n`);
+        appendOutput(`Tool: ${tool}\n\n`);
+        appendOutput("📡 Connecting to server...\n");
+
+        scanButton.disabled = true;
+        voiceButton.disabled = true;
+        aiBtn.disabled = true;
+        scanButton.textContent = "Scanning...";
+
+        fetch("/api/scan", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                target: target,
+                tool: tool,
+                scan_type: scanType
+            })
+        })
+        .then(res => {
+            console.log("Response status:", res.status);
+            return res.json();
+        })
+        .then(data => {
+            console.log("Response data:", data);
+            scanButton.disabled = false;
+            voiceButton.disabled = false;
+            scanButton.textContent = "Execute Scan";
+
+            if (data.status === "success") {
+                appendOutput("✓ Scan completed successfully\n\n");
+                appendOutput("===== TOOL OUTPUT =====\n");
+                appendOutput(data.execution.stdout || "No output");
+                appendOutput("\n");
+
+                if (data.execution.stderr) {
+                    appendOutput("===== WARNINGS/ERRORS =====\n");
+                    appendOutput(data.execution.stderr);
+                    appendOutput("\n");
+                }
+
+                // Store AI analysis separately
+                if (data.analysis && data.analysis.status === "success") {
+                    currentAIAnalysis = data.analysis.analysis;
+                    aiBtn.disabled = false;
+                    appendOutput("\n✓ AI Analysis available - Click 🤖 button to view\n");
+                } else if (data.analysis && data.analysis.status !== "success") {
+                    appendOutput("\n⚠️ AI Analysis unavailable\n");
+                }
+
+                currentReportFilename = data.report_filename;
+                downloadButton.disabled = false;
+                appendOutput("\n✓ Report generated: " + data.report_filename + "\n");
+                appendOutput("Click 'Download Report' to save.\n");
+            } else {
+                appendOutput(`❌ Scan failed: ${data.message}\n`);
+            }
+        })
+        .catch(err => {
+            console.error("Fetch error:", err);
+            scanButton.disabled = false;
+            voiceButton.disabled = false;
+            scanButton.textContent = "Execute Scan";
+            appendOutput(`❌ Execution error: ${err.message}\n`);
+        });
+    }
+
+    function clearOutput() {
+        terminalOutput.textContent = "";
+        if (aiBox) {
+            aiBox.style.display = "none";
+            aiText.textContent = "";
+        }
+        currentReportFilename = null;
+        currentAIAnalysis = null;
+        downloadButton.disabled = true;
+        aiBtn.disabled = true;
+    }
+
+    function toggleAI() {
+        if (!aiBox) {
+            appendOutput("❌ AI Analysis box not found\n");
+            return;
+        }
+        if (aiBox.style.display === "none") {
+            aiBox.style.display = "block";
+            if (currentAIAnalysis) {
+                aiText.textContent = currentAIAnalysis;
+            }
+            aiBtn.textContent = "🤖 Hide Analysis";
+        } else {
+            aiBox.style.display = "none";
+            aiBtn.textContent = "🤖 AI Analysis";
+        }
+    }
+
+    function downloadReport() {
+        if (!currentReportFilename) {
+            appendOutput("❌ No report available\n");
+            return;
+        }
+
+        const link = document.createElement("a");
+        link.href = `/api/download-report/${currentReportFilename}`;
+        link.download = currentReportFilename;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        appendOutput(`✓ Report downloaded: ${currentReportFilename}\n`);
+    }
+
+    function appendOutput(text) {
+        terminalOutput.textContent += text;
+        terminalOutput.scrollTop = terminalOutput.scrollHeight;
+    }
+
+    // Initialize
+    console.log("Initializing NARUTO...");
+    console.log("DOM Elements loaded:", {
+        scanButton: !!scanButton,
+        voiceButton: !!voiceButton,
+        clearButton: !!clearButton,
+        aiBtn: !!aiBtn,
+        downloadButton: !!downloadButton,
+        terminalOutput: !!terminalOutput,
+        aiText: !!aiText,
+        aiBox: !!aiBox,
+        targetInput: !!targetInput,
+        toolSelect: !!toolSelect,
+        scanTypeSelect: !!scanTypeSelect
+    });
+    
+    appendOutput("NARUTO RECON ASSISTANT\n");
+    appendOutput("Authorized Testing Only\n");
+    appendOutput("Enter a target and select reconnaissance tool to begin.\n\n");
+    console.log("NARUTO initialized successfully");
+});

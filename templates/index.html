@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Naruto - Cybersecurity Assistant</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>⚡ NARUTO</h1>
+            <p>CYBERSECURITY RECONNAISSANCE ASSISTANT</p>
+        </header>
+        
+        <main>
+            <div class="control-panel">
+                <div class="control-section">
+                    <label for="target">Target (IP or Domain)</label>
+                    <input type="text" id="target" placeholder="192.168.1.1 or lab.internal">
+                </div>
+                
+                <div class="control-section">
+                    <label for="tool">Reconnaissance Tool</label>
+                    <select id="tool">
+                        <option value="nmap">Nmap - Port Scanner</option>
+                        <option value="whois">Whois - Domain Lookup</option>
+                        <option value="gobuster">Gobuster - Directory Scan</option>
+                    </select>
+                </div>
+                
+                <div class="control-section" id="scan-type-section">
+                    <label for="scan-type">Scan Type</label>
+                    <select id="scan-type">
+                        <option value="basic">Basic Scan (~30 sec)</option>
+                        <option value="service_detection">Service Detection (-sV) (~3 min)</option>
+                        <option value="aggressive">Aggressive Scan (-A) (~4 min)</option>
+                        <option value="custom_ports">Custom Port Scan</option>
+                    </select>
+                </div>
+                
+                <div class="control-section" id="port-range-section" style="display: none;">
+                    <label for="port-range">Port Range</label>
+                    <input type="text" id="port-range" placeholder="e.g., 1-1000, 22,80,443, or 1-65535">
+                    <small style="color: #888;">Examples: 22 (single) | 1-1000 (range) | 22,80,443 (list)</small>
+                </div>
+                
+                <div class="button-group">
+                    <button id="scan-button">🔍 Execute Scan</button>
+                    <button id="voice-button">🎤 Voice Command</button>
+                    <button id="clear-output-button">🗑️ Clear Output</button>
+                    <button id="download-report-button" disabled>📥 Download Report</button>
+                </div>
+                
+                <div class="control-section" id="voice-input-section" style="display: none;">
+                    <label for="voice-input">Voice Command (Text):</label>
+                    <input type="text" id="voice-input" placeholder="e.g., scan 192.168.1.1 with nmap basic">
+                    <button id="send-voice-btn" style="margin-top: 10px; width: 100%;">📤 Send Command</button>
+                </div>
+            </div>
+            
+            <div class="output-box">
+                <p>Terminal Output:</p>
+                <pre id="terminal-output"></pre>
+            </div>
+            
+            <div id="listening-indicator" class="listening-indicator">🎤 Listening...</div>
+        </main>
+    </div>
+    
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
