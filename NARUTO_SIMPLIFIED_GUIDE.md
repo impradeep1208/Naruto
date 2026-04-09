@@ -10,7 +10,7 @@ NARUTO is a **Red Team Security Scanner** - a website that scans computers/serve
 
 ### **Step 1: User Opens Website**
 ```
-User types: http://127.0.0.1:5000 in browser
+User types: http://localhost:5000 in browser
 ↓
 Website loads with:
   • Dark theme UI (looks like a hacker interface)
@@ -318,7 +318,7 @@ Browser Downloads
 
 ```bash
 # 1. Open website
-http://127.0.0.1:5000
+http://localhost:5000
 
 # 2. Enter target IP
 192.168.1.1

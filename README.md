@@ -89,7 +89,7 @@ FLASK_DEBUG=False
 python3 app.py
 
 # Open in browser
-http://127.0.0.1:5000
+http://localhost:5000
 ```
 
 ---
@@ -429,7 +429,7 @@ This project is provided as-is for educational and authorized security testing p
 
 1. Setup `.env` file with your Ollama IP
 2. Run the application
-3. Open http://127.0.0.1:5000
+3. Open http://localhost:5000
 4. Start scanning!
 
 **Happy Red Teaming! 🔴**
